@@ -1,2 +1,2 @@
-export { User } from './user.entity';
-export { UserProfile } from './user-profile.entity';
+export * from './user.entity';
+export * from './user-profile.entity';
