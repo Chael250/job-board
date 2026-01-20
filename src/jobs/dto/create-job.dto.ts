@@ -1,5 +1,6 @@
-import { IsString, IsEnum, IsOptional, IsInt, Min, Max, Length } from 'class-validator';
+import { IsString, IsOptional, Length } from 'class-validator';
 import { EmploymentType } from '../entities/job.entity';
+import { IsValidEmploymentType, IsPositiveNumber, IsSafeHtml } from '../../common/validators';
 
 export class CreateJobDto {
   @IsString()
@@ -8,28 +9,28 @@ export class CreateJobDto {
 
   @IsString()
   @Length(50, 5000)
+  @IsSafeHtml()
   description: string;
 
   @IsString()
   @IsOptional()
   @Length(0, 5000)
+  @IsSafeHtml()
   requirements?: string;
 
   @IsString()
   @Length(2, 255)
   location: string;
 
-  @IsEnum(EmploymentType)
+  @IsValidEmploymentType()
   employmentType: EmploymentType;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
+  @IsPositiveNumber()
   salaryMin?: number;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
+  @IsPositiveNumber()
   salaryMax?: number;
 
   @IsOptional()

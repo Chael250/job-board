@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bull';
@@ -14,6 +14,9 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
 import { databaseConfig } from './config/database.config';
 import { redisConfig } from './config/redis.config';
+import { LoggingMiddleware } from './common/middleware/logging.middleware';
+import { SecurityHeadersMiddleware } from './common/middleware/security-headers.middleware';
+import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 
 @Module({
   imports: [
@@ -57,4 +60,10 @@ import { redisConfig } from './config/redis.config';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(RequestIdMiddleware, SecurityHeadersMiddleware, LoggingMiddleware)
+      .forRoutes('*');
+  }
+}

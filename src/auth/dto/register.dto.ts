@@ -1,5 +1,6 @@
-import { IsEmail, IsEnum, IsNotEmpty, IsString, MinLength, Matches, IsOptional } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, IsOptional } from 'class-validator';
 import { UserRole } from '../../common/types/user-role.enum';
+import { IsStrongPassword, IsValidRole, IsSafeHtml } from '../../common/validators';
 
 export class RegisterDto {
   @IsEmail()
@@ -7,13 +8,10 @@ export class RegisterDto {
   email: string;
 
   @IsString()
-  @MinLength(8)
-  @Matches(/((?=.*\d)|(?=.*\W+))(?![.\n])(?=.*[A-Z])(?=.*[a-z]).*$/, {
-    message: 'Password must contain uppercase, lowercase, number or special character',
-  })
+  @IsStrongPassword()
   password: string;
 
-  @IsEnum(UserRole)
+  @IsValidRole()
   role: UserRole;
 
   @IsString()
@@ -38,5 +36,6 @@ export class RegisterDto {
 
   @IsString()
   @IsOptional()
+  @IsSafeHtml()
   companyDescription?: string;
 }
