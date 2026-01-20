@@ -1,3 +1,4 @@
+
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class CreateInitialSchema1700000000000 implements MigrationInterface {
