@@ -164,6 +164,9 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
         "details" jsonb,
         "ip_address" inet,
         "user_agent" text,
+        "endpoint" character varying(500),
+        "http_method" character varying(10),
+        "status_code" integer,
         "created_at" TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_audit_logs_id" PRIMARY KEY ("id"),
         CONSTRAINT "FK_audit_logs_user_id" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE SET NULL
