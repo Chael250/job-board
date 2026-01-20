@@ -176,10 +176,58 @@ export class CreateInitialSchema1700000000000 implements MigrationInterface {
     await queryRunner.query(`CREATE INDEX "IDX_audit_logs_resource_type" ON "audit_logs" ("resource_type")`);
     await queryRunner.query(`CREATE INDEX "IDX_audit_logs_created_at" ON "audit_logs" ("created_at")`);
     await queryRunner.query(`CREATE INDEX "IDX_audit_logs_resource_id" ON "audit_logs" ("resource_id")`);
+
+    // Create notification_logs table
+    await queryRunner.query(`
+      CREATE TABLE "notification_logs" (
+        "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
+        "to" character varying(255) NOT NULL,
+        "template" character varying(100) NOT NULL,
+        "status" character varying(20) NOT NULL DEFAULT 'pending',
+        "attempts" integer NOT NULL DEFAULT 0,
+        "last_attempt" TIMESTAMP,
+        "sent_at" TIMESTAMP,
+        "error" text,
+        "data" jsonb,
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_notification_logs_id" PRIMARY KEY ("id"),
+        CONSTRAINT "CHK_notification_logs_status" CHECK ("status" IN ('pending', 'sent', 'failed', 'retrying'))
+      )
+    `);
+
+    // Create indexes for notification_logs table
+    await queryRunner.query(`CREATE INDEX "IDX_notification_logs_to" ON "notification_logs" ("to")`);
+    await queryRunner.query(`CREATE INDEX "IDX_notification_logs_template" ON "notification_logs" ("template")`);
+    await queryRunner.query(`CREATE INDEX "IDX_notification_logs_status" ON "notification_logs" ("status")`);
+    await queryRunner.query(`CREATE INDEX "IDX_notification_logs_created_at" ON "notification_logs" ("created_at")`);
+
+    // Create user_notification_preferences table
+    await queryRunner.query(`
+      CREATE TABLE "user_notification_preferences" (
+        "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
+        "user_id" uuid NOT NULL,
+        "application_status_changes" boolean NOT NULL DEFAULT true,
+        "new_applications" boolean NOT NULL DEFAULT true,
+        "job_posted" boolean NOT NULL DEFAULT true,
+        "account_suspended" boolean NOT NULL DEFAULT true,
+        "email_notifications" boolean NOT NULL DEFAULT true,
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_user_notification_preferences_id" PRIMARY KEY ("id"),
+        CONSTRAINT "UQ_user_notification_preferences_user_id" UNIQUE ("user_id"),
+        CONSTRAINT "FK_user_notification_preferences_user_id" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE
+      )
+    `);
+
+    // Create indexes for user_notification_preferences table
+    await queryRunner.query(`CREATE INDEX "IDX_user_notification_preferences_user_id" ON "user_notification_preferences" ("user_id")`);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     // Drop tables in reverse order to handle foreign key constraints
+    await queryRunner.query(`DROP TABLE "user_notification_preferences"`);
+    await queryRunner.query(`DROP TABLE "notification_logs"`);
     await queryRunner.query(`DROP TABLE "audit_logs"`);
     await queryRunner.query(`DROP TABLE "refresh_tokens"`);
     await queryRunner.query(`DROP TABLE "files"`);

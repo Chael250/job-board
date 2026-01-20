@@ -12,6 +12,7 @@ import { Job } from '../jobs/entities/job.entity';
 import { User } from '../users/entities/user.entity';
 import { CreateApplicationDto, UpdateApplicationStatusDto, ApplicationFiltersDto } from './dto';
 import { PaginationDto } from '../common/types/pagination.dto';
+import { NotificationService } from '../notifications/services/notification.service';
 
 export interface PaginatedResponse<T> {
   data: T[];
@@ -30,6 +31,7 @@ export class ApplicationsService {
     private jobRepository: Repository<Job>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    private notificationService: NotificationService,
   ) {}
 
   async submitApplication(
@@ -41,6 +43,7 @@ export class ApplicationsService {
     // Check if job exists and is active
     const job = await this.jobRepository.findOne({
       where: { id: jobId, isActive: true },
+      relations: ['company', 'company.profile'],
     });
 
     if (!job) {
@@ -50,6 +53,7 @@ export class ApplicationsService {
     // Check if user exists and is a job seeker
     const jobSeeker = await this.userRepository.findOne({
       where: { id: jobSeekerId },
+      relations: ['profile'],
     });
 
     if (!jobSeeker) {
@@ -74,7 +78,27 @@ export class ApplicationsService {
       status: ApplicationStatus.APPLIED,
     });
 
-    return this.applicationRepository.save(application);
+    const savedApplication = await this.applicationRepository.save(application);
+
+    // Send notification to company about new application
+    try {
+      await this.notificationService.sendNewApplicationNotification(
+        job.company.email,
+        {
+          companyName: job.company.profile?.companyName || 'Your Company',
+          jobTitle: job.title,
+          applicantName: `${jobSeeker.profile?.firstName || ''} ${jobSeeker.profile?.lastName || ''}`.trim() || 'Anonymous',
+          applicationDate: savedApplication.appliedAt.toLocaleDateString(),
+          resumeAttached: !!resumeUrl,
+        },
+        job.companyId, // Pass company userId for preference checking
+      );
+    } catch (error) {
+      // Log notification error but don't fail the application submission
+      console.error('Failed to send new application notification:', error);
+    }
+
+    return savedApplication;
   }
 
   async updateApplicationStatus(
@@ -84,10 +108,10 @@ export class ApplicationsService {
   ): Promise<Application> {
     const { status } = updateStatusDto;
 
-    // Find application with job relationship
+    // Find application with job and job seeker relationships
     const application = await this.applicationRepository.findOne({
       where: { id: applicationId },
-      relations: ['job'],
+      relations: ['job', 'job.company', 'job.company.profile', 'jobSeeker', 'jobSeeker.profile'],
     });
 
     if (!application) {
@@ -102,12 +126,34 @@ export class ApplicationsService {
     // Validate status transition
     this.validateStatusTransition(application.status, status);
 
+    const previousStatus = application.status;
+
     // Update application
     application.status = status;
     application.reviewedAt = new Date();
     application.reviewedBy = companyId;
 
-    return this.applicationRepository.save(application);
+    const updatedApplication = await this.applicationRepository.save(application);
+
+    // Send notification to job seeker about status change
+    try {
+      await this.notificationService.sendApplicationStatusChangeNotification(
+        application.jobSeeker.email,
+        {
+          jobSeekerName: `${application.jobSeeker.profile?.firstName || ''} ${application.jobSeeker.profile?.lastName || ''}`.trim() || 'Dear Applicant',
+          jobTitle: application.job.title,
+          companyName: application.job.company.profile?.companyName || 'the company',
+          status: this.getStatusDisplayName(status),
+          applicationDate: application.appliedAt.toLocaleDateString(),
+        },
+        application.jobSeekerId, // Pass job seeker userId for preference checking
+      );
+    } catch (error) {
+      // Log notification error but don't fail the status update
+      console.error('Failed to send application status change notification:', error);
+    }
+
+    return updatedApplication;
   }
 
   async getJobSeekerApplications(
@@ -259,5 +305,17 @@ export class ApplicationsService {
         `Invalid status transition from ${currentStatus} to ${newStatus}`,
       );
     }
+  }
+
+  private getStatusDisplayName(status: ApplicationStatus): string {
+    const statusDisplayNames: Record<ApplicationStatus, string> = {
+      [ApplicationStatus.APPLIED]: 'Applied',
+      [ApplicationStatus.REVIEWED]: 'Under Review',
+      [ApplicationStatus.SHORTLISTED]: 'Shortlisted',
+      [ApplicationStatus.ACCEPTED]: 'Accepted',
+      [ApplicationStatus.REJECTED]: 'Rejected',
+    };
+
+    return statusDisplayNames[status] || status;
   }
 }

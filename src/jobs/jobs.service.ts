@@ -7,8 +7,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Job } from './entities/job.entity';
+import { User } from '../users/entities/user.entity';
 import { CreateJobDto, UpdateJobDto, JobFiltersDto } from './dto';
 import { PaginationDto } from '../common/types/pagination.dto';
+import { NotificationService } from '../notifications/services/notification.service';
 
 export interface PaginatedResponse<T> {
   data: T[];
@@ -23,6 +25,9 @@ export class JobsService {
   constructor(
     @InjectRepository(Job)
     private readonly jobRepository: Repository<Job>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+    private notificationService: NotificationService,
   ) {}
 
   async createJob(companyId: string, createJobDto: CreateJobDto): Promise<Job> {
@@ -35,12 +40,39 @@ export class JobsService {
       throw new BadRequestException('Salary minimum cannot be greater than maximum');
     }
 
+    // Get company information for notification
+    const company = await this.userRepository.findOne({
+      where: { id: companyId },
+      relations: ['profile'],
+    });
+
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+
     const job = this.jobRepository.create({
       ...createJobDto,
       companyId,
     });
 
-    return await this.jobRepository.save(job);
+    const savedJob = await this.jobRepository.save(job);
+
+    // Send job posted notification to company
+    try {
+      await this.notificationService.sendJobPostedNotification(
+        company.email,
+        {
+          companyName: company.profile?.companyName || 'Your Company',
+          jobTitle: savedJob.title,
+        },
+        companyId, // Pass company userId for preference checking
+      );
+    } catch (error) {
+      // Log notification error but don't fail the job creation
+      console.error('Failed to send job posted notification:', error);
+    }
+
+    return savedJob;
   }
 
   async updateJob(
