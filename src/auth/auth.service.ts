@@ -141,7 +141,6 @@ export class AuthService {
       email: user.email,
       role: user.role,
       iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + (15 * 60), // 15 minutes
     };
 
     // Generate refresh token
@@ -150,7 +149,6 @@ export class AuthService {
       sub: user.id,
       tokenId: refreshTokenId,
       iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60), // 7 days
     };
 
     const accessToken = this.jwtService.sign(payload, {

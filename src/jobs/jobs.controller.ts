@@ -22,7 +22,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../common/types/user-role.enum';
 
-@Controller('api/v1/jobs')
+@Controller('jobs')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class JobsController {
   constructor(private readonly jobsService: JobsService) {}

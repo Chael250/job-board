@@ -12,7 +12,7 @@ export class UpdateNotificationPreferencesDto {
   emailNotifications?: boolean;
 }
 
-@Controller('api/v1/notifications/preferences')
+@Controller('notifications/preferences')
 @UseGuards(JwtAuthGuard)
 export class NotificationPreferencesController {
   constructor(private notificationService: NotificationService) {}

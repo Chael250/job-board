@@ -23,7 +23,7 @@ import {
 } from './dto';
 import { PaginationDto } from '../common/types/pagination.dto';
 
-@Controller('api/v1/applications')
+@Controller('applications')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ApplicationsController {
   constructor(private readonly applicationsService: ApplicationsService) {}
@@ -69,7 +69,7 @@ export class ApplicationsController {
   }
 }
 
-@Controller('api/v1/jobs/:jobId/applications')
+@Controller('jobs/:jobId/applications')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class JobApplicationsController {
   constructor(private readonly applicationsService: ApplicationsService) {}
@@ -86,7 +86,7 @@ export class JobApplicationsController {
   }
 }
 
-@Controller('api/v1/companies/applications')
+@Controller('companies/applications')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class CompanyApplicationsController {
   constructor(private readonly applicationsService: ApplicationsService) {}

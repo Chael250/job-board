@@ -5,14 +5,12 @@ export interface JWTPayload {
   email: string;      // User email
   role: UserRole;     // ADMIN | COMPANY | JOB_SEEKER
   iat: number;        // Issued at
-  exp: number;        // Expires at
 }
 
 export interface RefreshTokenPayload {
   sub: string;        // User ID
   tokenId: string;    // Unique token identifier
   iat: number;        // Issued at
-  exp: number;        // Expires at
 }
 
 export interface AuthResponse {

@@ -20,7 +20,7 @@ import { User } from './entities/user.entity';
 import { UsersService, PaginatedUsers } from './users.service';
 import { UpdateUserDto, UserSearchDto } from './dto';
 
-@Controller('api/v1/admin/users')
+@Controller('admin/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class AdminController {

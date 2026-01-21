@@ -21,7 +21,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 
 @ApiTags('files')
-@Controller('api/v1/files')
+@Controller('files')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class FilesController {

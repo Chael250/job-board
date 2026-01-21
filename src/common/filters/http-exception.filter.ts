@@ -91,7 +91,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     // Add request ID if available
     const requestId = request.headers['x-request-id'] as string;
-    if (requestId) {
+    if (requestId && errorResponse.error && typeof errorResponse.error === 'object') {
       errorResponse.error.requestId = requestId;
     }
 

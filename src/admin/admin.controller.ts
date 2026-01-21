@@ -35,7 +35,7 @@ interface ConfirmationDto {
   reason?: string;
 }
 
-@Controller('api/v1/admin')
+@Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class AdminController {
