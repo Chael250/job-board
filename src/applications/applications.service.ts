@@ -13,6 +13,7 @@ import { User } from '../users/entities/user.entity';
 import { CreateApplicationDto, UpdateApplicationStatusDto, ApplicationFiltersDto } from './dto';
 import { PaginationDto } from '../common/types/pagination.dto';
 import { NotificationService } from '../notifications/services/notification.service';
+import { CacheService } from '../common/services/cache.service';
 
 export interface PaginatedResponse<T> {
   data: T[];
@@ -32,6 +33,7 @@ export class ApplicationsService {
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private notificationService: NotificationService,
+    private cacheService: CacheService,
   ) {}
 
   async submitApplication(
@@ -40,14 +42,30 @@ export class ApplicationsService {
   ): Promise<Application> {
     const { jobId, coverLetter, resumeUrl } = createApplicationDto;
 
-    // Check if job exists and is active
-    const job = await this.jobRepository.findOne({
-      where: { id: jobId, isActive: true },
-      relations: ['company', 'company.profile'],
-    });
+    // Check cache for existing application first
+    const existingCacheKey = this.cacheService.generateKey('application:exists', jobId, jobSeekerId);
+    const cachedExists = await this.cacheService.get<boolean>(existingCacheKey);
+    
+    if (cachedExists) {
+      throw new ConflictException('You have already applied for this job');
+    }
 
+    // Check if job exists and is active (with caching)
+    const jobCacheKey = this.cacheService.generateKey('job:active', jobId);
+    let job = await this.cacheService.get<Job>(jobCacheKey);
+    
     if (!job) {
-      throw new NotFoundException('Job not found or is no longer active');
+      job = await this.jobRepository.findOne({
+        where: { id: jobId, isActive: true },
+        relations: ['company', 'company.profile'],
+      });
+
+      if (!job) {
+        throw new NotFoundException('Job not found or is no longer active');
+      }
+
+      // Cache job for 5 minutes
+      await this.cacheService.set(jobCacheKey, job, 300);
     }
 
     // Check if user exists and is a job seeker
@@ -60,12 +78,14 @@ export class ApplicationsService {
       throw new NotFoundException('Job seeker not found');
     }
 
-    // Check for duplicate application
+    // Check for duplicate application in database
     const existingApplication = await this.applicationRepository.findOne({
       where: { jobId, jobSeekerId },
     });
 
     if (existingApplication) {
+      // Cache the existence for future checks
+      await this.cacheService.set(existingCacheKey, true, 3600); // 1 hour
       throw new ConflictException('You have already applied for this job');
     }
 
@@ -79,6 +99,12 @@ export class ApplicationsService {
     });
 
     const savedApplication = await this.applicationRepository.save(application);
+
+    // Cache the application existence
+    await this.cacheService.set(existingCacheKey, true, 3600); // 1 hour
+
+    // Invalidate related caches
+    await this.invalidateApplicationCaches(jobSeekerId, jobId);
 
     // Send notification to company about new application
     try {
@@ -135,6 +161,9 @@ export class ApplicationsService {
 
     const updatedApplication = await this.applicationRepository.save(application);
 
+    // Invalidate related caches
+    await this.invalidateApplicationCaches(application.jobSeekerId, application.jobId);
+
     // Send notification to job seeker about status change
     try {
       await this.notificationService.sendApplicationStatusChangeNotification(
@@ -161,6 +190,20 @@ export class ApplicationsService {
     pagination: PaginationDto,
   ): Promise<PaginatedResponse<Application>> {
     const { page = 1, limit = 10 } = pagination;
+    
+    // Generate cache key
+    const cacheKey = this.cacheService.generateKey(
+      'applications:jobseeker',
+      jobSeekerId,
+      JSON.stringify(pagination)
+    );
+
+    // Try cache first
+    const cachedResult = await this.cacheService.get<PaginatedResponse<Application>>(cacheKey);
+    if (cachedResult) {
+      return cachedResult;
+    }
+
     const skip = (page - 1) * limit;
 
     const [applications, total] = await this.applicationRepository.findAndCount({
@@ -171,13 +214,18 @@ export class ApplicationsService {
       take: limit,
     });
 
-    return {
+    const result = {
       data: applications,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
     };
+
+    // Cache for 2 minutes
+    await this.cacheService.set(cacheKey, result, 120);
+
+    return result;
   }
 
   async getJobApplications(
@@ -187,7 +235,21 @@ export class ApplicationsService {
     pagination: PaginationDto,
   ): Promise<PaginatedResponse<Application>> {
     const { page = 1, limit = 10 } = pagination;
-    const skip = (page - 1) * limit;
+    
+    // Generate cache key
+    const cacheKey = this.cacheService.generateKey(
+      'applications:job',
+      jobId,
+      companyId,
+      JSON.stringify(filters),
+      JSON.stringify(pagination)
+    );
+
+    // Try cache first
+    const cachedResult = await this.cacheService.get<PaginatedResponse<Application>>(cacheKey);
+    if (cachedResult) {
+      return cachedResult;
+    }
 
     // Verify company owns the job
     const job = await this.jobRepository.findOne({
@@ -197,6 +259,8 @@ export class ApplicationsService {
     if (!job) {
       throw new ForbiddenException('You can only view applications for your own jobs');
     }
+
+    const skip = (page - 1) * limit;
 
     // Build query conditions
     const whereConditions: any = { jobId };
@@ -212,13 +276,18 @@ export class ApplicationsService {
       take: limit,
     });
 
-    return {
+    const result = {
       data: applications,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
     };
+
+    // Cache for 2 minutes
+    await this.cacheService.set(cacheKey, result, 120);
+
+    return result;
   }
 
   async getCompanyApplications(
@@ -227,9 +296,24 @@ export class ApplicationsService {
     pagination: PaginationDto,
   ): Promise<PaginatedResponse<Application>> {
     const { page = 1, limit = 10 } = pagination;
+    
+    // Generate cache key
+    const cacheKey = this.cacheService.generateKey(
+      'applications:company',
+      companyId,
+      JSON.stringify(filters),
+      JSON.stringify(pagination)
+    );
+
+    // Try cache first
+    const cachedResult = await this.cacheService.get<PaginatedResponse<Application>>(cacheKey);
+    if (cachedResult) {
+      return cachedResult;
+    }
+
     const skip = (page - 1) * limit;
 
-    // Build query to get applications for company's jobs
+    // Build optimized query to get applications for company's jobs
     const queryBuilder = this.applicationRepository
       .createQueryBuilder('application')
       .leftJoinAndSelect('application.job', 'job')
@@ -252,20 +336,39 @@ export class ApplicationsService {
 
     const [applications, total] = await queryBuilder.getManyAndCount();
 
-    return {
+    const result = {
       data: applications,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
     };
+
+    // Cache for 2 minutes
+    await this.cacheService.set(cacheKey, result, 120);
+
+    return result;
   }
 
   async checkExistingApplication(jobId: string, jobSeekerId: string): Promise<boolean> {
+    // Check cache first
+    const cacheKey = this.cacheService.generateKey('application:exists', jobId, jobSeekerId);
+    const cachedExists = await this.cacheService.get<boolean>(cacheKey);
+    
+    if (cachedExists !== null) {
+      return cachedExists;
+    }
+
     const application = await this.applicationRepository.findOne({
       where: { jobId, jobSeekerId },
     });
-    return !!application;
+    
+    const exists = !!application;
+    
+    // Cache the result for 1 hour
+    await this.cacheService.set(cacheKey, exists, 3600);
+    
+    return exists;
   }
 
   async getApplicationById(applicationId: string, userId: string): Promise<Application> {
@@ -317,5 +420,26 @@ export class ApplicationsService {
     };
 
     return statusDisplayNames[status] || status;
+  }
+
+  private async invalidateApplicationCaches(jobSeekerId: string, jobId?: string): Promise<void> {
+    // Invalidate job seeker's application caches
+    await this.cacheService.delPattern(`applications:jobseeker:${jobSeekerId}:*`);
+    
+    if (jobId) {
+      // Invalidate job-specific application caches
+      await this.cacheService.delPattern(`applications:job:${jobId}:*`);
+      
+      // Get the job to find company ID for cache invalidation
+      const job = await this.jobRepository.findOne({
+        where: { id: jobId },
+        select: ['companyId'],
+      });
+      
+      if (job) {
+        // Invalidate company application caches
+        await this.cacheService.delPattern(`applications:company:${job.companyId}:*`);
+      }
+    }
   }
 }

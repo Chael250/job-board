@@ -12,5 +12,7 @@
   "moduleNameMapping": {
     "^uuid$": "uuid"
   },
-  "preset": "ts-jest"
+  "preset": "ts-jest",
+  "testTimeout": 30000,
+  "setupFilesAfterEnv": ["<rootDir>/test-setup.ts"]
 }

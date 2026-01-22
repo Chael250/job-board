@@ -11,6 +11,8 @@ import { User } from '../users/entities/user.entity';
 import { CreateJobDto, UpdateJobDto, JobFiltersDto } from './dto';
 import { PaginationDto } from '../common/types/pagination.dto';
 import { NotificationService } from '../notifications/services/notification.service';
+import { CacheService } from '../common/services/cache.service';
+import { QueryOptimizerService } from '../common/services/query-optimizer.service';
 
 export interface PaginatedResponse<T> {
   data: T[];
@@ -28,6 +30,8 @@ export class JobsService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     private notificationService: NotificationService,
+    private cacheService: CacheService,
+    private queryOptimizerService: QueryOptimizerService,
   ) {}
 
   async createJob(companyId: string, createJobDto: CreateJobDto): Promise<Job> {
@@ -56,6 +60,9 @@ export class JobsService {
     });
 
     const savedJob = await this.jobRepository.save(job);
+
+    // Invalidate job listing caches
+    await this.invalidateJobCaches();
 
     // Send job posted notification to company
     try {
@@ -100,7 +107,13 @@ export class JobsService {
     }
 
     Object.assign(job, updateJobDto);
-    return await this.jobRepository.save(job);
+    const updatedJob = await this.jobRepository.save(job);
+
+    // Invalidate caches
+    await this.invalidateJobCaches();
+    await this.cacheService.del(this.cacheService.generateKey('job:detail', jobId));
+
+    return updatedJob;
   }
 
   async closeJob(jobId: string, companyId: string): Promise<void> {
@@ -114,21 +127,63 @@ export class JobsService {
     job.isActive = false;
     job.closedAt = new Date();
     await this.jobRepository.save(job);
+
+    // Invalidate caches
+    await this.invalidateJobCaches();
+    await this.cacheService.del(this.cacheService.generateKey('job:detail', jobId));
   }
 
   async getJobs(
     filters: JobFiltersDto,
     pagination: PaginationDto,
   ): Promise<PaginatedResponse<Job>> {
+    const { page = 1, limit = 10 } = pagination;
+    
+    // Generate cache key based on filters and pagination
+    const cacheKey = this.queryOptimizerService.generateCacheKey(
+      'Job',
+      'getJobs',
+      filters,
+      { page, limit }
+    );
+
+    // Try to get from cache first
+    const cachedResult = await this.cacheService.get<PaginatedResponse<Job>>(cacheKey);
+    if (cachedResult) {
+      return cachedResult;
+    }
+
     const queryBuilder = this.createJobQueryBuilder(filters);
     
     // Only return active jobs for public listing
     queryBuilder.andWhere('job.isActive = :isActive', { isActive: true });
 
-    return await this.executePaginatedQuery(queryBuilder, pagination);
+    // Use query optimizer for better performance
+    const result = await this.queryOptimizerService.optimizePaginatedQuery(
+      queryBuilder,
+      page,
+      limit,
+      cacheKey,
+      { enableCache: true, cacheTTL: 300 }
+    );
+    
+    return {
+      data: result.data,
+      total: result.total,
+      page,
+      limit,
+      totalPages: Math.ceil(result.total / limit),
+    };
   }
 
   async getJobById(jobId: string): Promise<Job> {
+    // Try cache first
+    const cacheKey = this.cacheService.generateKey('job:detail', jobId);
+    const cachedJob = await this.cacheService.get<Job>(cacheKey);
+    if (cachedJob) {
+      return cachedJob;
+    }
+
     const job = await this.jobRepository.findOne({
       where: { id: jobId, isActive: true },
       relations: ['company', 'company.profile'],
@@ -137,6 +192,9 @@ export class JobsService {
     if (!job) {
       throw new NotFoundException('Job not found');
     }
+
+    // Cache for 10 minutes
+    await this.cacheService.set(cacheKey, job, 600);
 
     return job;
   }
@@ -219,9 +277,10 @@ export class JobsService {
     }
 
     if (filters.keywords) {
+      // Use PostgreSQL full-text search for better performance
       queryBuilder.andWhere(
-        '(LOWER(job.title) LIKE LOWER(:keywords) OR LOWER(job.description) LIKE LOWER(:keywords))',
-        { keywords: `%${filters.keywords}%` },
+        "to_tsvector('english', job.title || ' ' || job.description) @@ plainto_tsquery('english', :keywords)",
+        { keywords: filters.keywords },
       );
     }
 
@@ -251,5 +310,12 @@ export class JobsService {
       limit,
       totalPages,
     };
+  }
+
+  private async invalidateJobCaches(): Promise<void> {
+    // Invalidate all job listing caches
+    await this.cacheService.delPattern('jobs:public:*');
+    await this.cacheService.delPattern('jobs:company:*');
+    await this.cacheService.delPattern('jobs:admin:*');
   }
 }

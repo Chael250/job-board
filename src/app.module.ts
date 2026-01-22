@@ -3,8 +3,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bull';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { JobsModule } from './jobs/jobs.module';
@@ -17,13 +19,16 @@ import { redisConfig } from './config/redis.config';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 import { SecurityHeadersMiddleware } from './common/middleware/security-headers.middleware';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
+import { PerformanceInterceptor } from './common/interceptors/performance.interceptor';
 
 @Module({
   imports: [
     // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env.local', '.env'],
+      envFilePath: process.env.NODE_ENV === 'test' 
+        ? ['.env.test', '.env'] 
+        : ['.env.local', '.env'],
     }),
     
     // Database
@@ -49,6 +54,7 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
     ]),
     
     // Feature modules
+    CommonModule,
     AuthModule,
     UsersModule,
     JobsModule,
@@ -58,7 +64,13 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
     AdminModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: PerformanceInterceptor,
+    },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
